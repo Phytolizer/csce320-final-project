@@ -25,21 +25,31 @@ fn main() {
     //     to_string_pretty(&data.lock() as &HashMap<String, usize>).unwrap(),
     // );
 
+    // BufReader allows reading a file line by line
     let file = Mutex::new(BufReader::new(File::open("raw.txt").unwrap()));
+    // C++ equivalent: std::pair<std::mutex, std::vector<PlayerGames>>
+    // can't access data without locking it first
     let data = Mutex::new(Vec::<PlayerGames>::new());
+    // holds the contents of token.txt
     let token = String::from_utf8_lossy(&std::fs::read("token.txt").unwrap())
         .trim()
         .to_string();
     rayon::scope(|s| {
+        // spawn 8 threads
         for _ in 0..8 {
             s.spawn(|_| {
+                // buffer for the current line
                 let mut line = String::new();
                 loop {
+                    // read a line and check for EOF
                     if let Ok(0) = file.lock().read_line(&mut line) {
                         break;
                     }
+                    // this 'match' statement checks for errors, similar to try/catch
                     let games = match api_caller::collect_game_info(&token, line.trim()) {
+                        // function was successful
                         Ok(games) => games,
+                        // there was some error, print it but otherwise ignore it
                         Err(e) => {
                             eprintln!("{}", e);
                             line.clear();
@@ -52,14 +62,17 @@ fn main() {
                         line.trim(),
                         games.games.len()
                     );
+                    // append to data
                     data.lock().push(games);
                     line.clear();
                 }
             });
         }
     });
+    // convert to JSON and save to file
     std::fs::write(
         "games.json",
+        // magic
         to_string_pretty(&data.lock() as &[_]).unwrap(),
     )
     .unwrap();

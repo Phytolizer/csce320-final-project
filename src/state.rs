@@ -1,3 +1,5 @@
+//! this file is entirely unused. you can ignore it
+
 pub struct State {
     token: String,
 }
