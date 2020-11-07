@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fs::File, io::BufRead, io::BufReader};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::BufRead,
+    io::{BufReader, Write},
+};
 
 use api_caller::{crawl, PlayerGames};
 use parking_lot::Mutex;
@@ -30,6 +35,7 @@ fn main() {
     // C++ equivalent: std::pair<std::mutex, std::vector<PlayerGames>>
     // can't access data without locking it first
     let data = Mutex::new(Vec::<PlayerGames>::new());
+    let games_raw = Mutex::new(File::create("games_raw.txt").unwrap());
     // holds the contents of token.txt
     let token = String::from_utf8_lossy(&std::fs::read("token.txt").unwrap())
         .trim()
@@ -46,7 +52,10 @@ fn main() {
                         break;
                     }
                     // this 'match' statement checks for errors, similar to try/catch
-                    let games = match api_caller::collect_game_info(&token, line.trim()) {
+                    let games = match api_caller::collect_game_info(
+                        &token,
+                        line.trim(),
+                    ) {
                         // function was successful
                         Ok(games) => games,
                         // there was some error, print it but otherwise ignore it
@@ -63,6 +72,9 @@ fn main() {
                         games.games.len()
                     );
                     // append to data
+                    games_raw.lock().write_all(
+                        to_string_pretty(&games).unwrap().as_bytes(),
+                    );
                     data.lock().push(games);
                     line.clear();
                 }

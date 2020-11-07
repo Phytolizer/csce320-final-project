@@ -1,9 +1,4 @@
 use parking_lot::Mutex;
-use rayon::iter::{ParallelExtend, ParallelIterator};
-use rayon::{
-    iter::{IntoParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator},
-    ThreadPool, ThreadPoolBuilder,
-};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::from_str;
@@ -95,7 +90,9 @@ fn make_api_call(
             );
             if xeresult == "84" {
                 // "84" means "rate limited"
-                std::thread::sleep(std::time::Duration::from_secs(10));
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            } else if xeresult == "15" {
+                break;
             } else {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
@@ -104,6 +101,7 @@ fn make_api_call(
         // map_err here converts the error to a string
         return req.text().map_err(|e| format!("{}", e));
     }
+    return Ok(String::new());
 }
 
 // this function can be called from other files
@@ -113,14 +111,19 @@ fn make_api_call(
 ///
 /// Returns: a map with keys representing users and values representing the number
 /// of hits that user received from the crawler
-pub(crate) fn crawl(token: &str, seed: &str) -> Result<Mutex<HashMap<String, usize>>, String> {
+pub(crate) fn crawl(
+    token: &str,
+    seed: &str,
+) -> Result<Mutex<HashMap<String, usize>>, String> {
     // thread-safe map holding the "network" of friends
     let network = Mutex::new(HashMap::<String, usize>::new());
     // the key "private" represents all private profiles
     network.lock().insert(String::from("private"), 0);
     // raw_file will be updated continuously with the unique user IDs only
     // this is a backup in case the program somehow crashes
-    let raw_file = Mutex::new(std::fs::File::create("raw.txt").map_err(|e| format!("{}", e))?);
+    let raw_file = Mutex::new(
+        std::fs::File::create("raw.txt").map_err(|e| format!("{}", e))?,
+    );
     // the queue holds the user IDs yet to be crawled
     let network_queue = Mutex::new(VecDeque::<String>::new());
     let mut params = HashMap::<String, String>::new();
@@ -202,7 +205,10 @@ pub(crate) fn crawl(token: &str, seed: &str) -> Result<Mutex<HashMap<String, usi
     Ok(network)
 }
 
-pub(crate) fn collect_game_info(token: &str, user_id: &str) -> Result<PlayerGames, String> {
+pub(crate) fn collect_game_info(
+    token: &str,
+    user_id: &str,
+) -> Result<PlayerGames, String> {
     let mut params = HashMap::<String, String>::new();
     params.insert(String::from("key"), token.to_string());
     params.insert(String::from("steamid"), user_id.to_string());
@@ -214,7 +220,8 @@ pub(crate) fn collect_game_info(token: &str, user_id: &str) -> Result<PlayerGame
     )
     .map_err(|e| format!("{}", e))?;
     // parse as GamesResponse, again **magic**
-    let games: GamesResponse = from_str(&res).map_err(|e| format!("{}: {}", res, e))?;
+    let games: GamesResponse =
+        from_str(&res).map_err(|e| format!("{}: {}", res, e))?;
     Ok(PlayerGames {
         player: user_id.to_string(),
         games: games.response.games,
