@@ -1,15 +1,12 @@
 use std::{
-    collections::HashMap,
     fs::File,
     io::BufRead,
     io::{BufReader, Write},
 };
 
-use api_caller::{crawl, PlayerGames};
+use api_caller::PlayerGames;
 use parking_lot::Mutex;
 use serde_json::to_string_pretty;
-
-const STEAM_API_URL: &str = "https://api.steampowered.com/";
 
 mod api_caller;
 mod state;
@@ -55,7 +52,7 @@ fn main() {
                     let games = match api_caller::collect_game_info(
                         &token,
                         line.trim(),
-                    ) {
+                        ) {
                         // function was successful
                         Ok(games) => games,
                         // there was some error, print it but otherwise ignore it
@@ -70,13 +67,13 @@ fn main() {
                         rayon::current_thread_index().unwrap(),
                         line.trim(),
                         games.games.len()
-                    );
+                        );
                     // append to data
                     games_raw.lock().write_all(
                         to_string_pretty(&games).unwrap().as_bytes(),
-                    );
-                    data.lock().push(games);
-                    line.clear();
+                        ).unwrap();
+                data.lock().push(games);
+                line.clear();
                 }
             });
         }
@@ -86,6 +83,6 @@ fn main() {
         "games.json",
         // magic
         to_string_pretty(&data.lock() as &[_]).unwrap(),
-    )
-    .unwrap();
+        )
+        .unwrap();
 }
