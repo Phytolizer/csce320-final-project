@@ -57,51 +57,70 @@ pub(crate) struct PlayerGames {
     pub games: Vec<Game>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct ReviewResult {
+    success: i32,
+    summary: ReviewSummary,
+    reviews: Vec<Review>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct ReviewSummary {
+    review_score: f64,
+    total_positive: usize,
+    total_negative: usize,
+    total_reviews: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct Review {
+    weighted_vote_score: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct GameInfoResult {
+    success: i32,
+    data: GameInfo,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct GameInfo {
+    name: String,
+    appid: String,
+    genres: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct GameAndReviewInfo {
+    game_info: GameInfo,
+    reviews: Vec<Review>,
+    review_summary: ReviewSummary,
+}
+
 /// Make an API call, repeating it until it succeeds.
 fn make_api_call(
     client: &mut Client,
     url: &str,
     params: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let url = String::from(URL) + url;
+    let url = String::from(crate::STEAM_API_URL) + url;
     // while (true)
-    loop {
-        // send the request
+    // send the request
+    let req = loop {
         let req = client
             .get(&url)
             .query(params)
             .send()
             .map_err(|e| format!("{}", e))?;
-        // check for errors in the response headers
-        let xeresult = req
-            .headers()
-            .get("x-eresult")
-            // header will always have the key 'x-eresult'
-            .unwrap()
-            .to_str()
-            // the x-eresult will always be valid to put in a string
-            .unwrap()
-            .to_string();
-        // "1" means "OK"
-        if xeresult != "1" {
-            println!(
-                "x-eresult: {}",
-                req.headers().get("x-eresult").unwrap().to_str().unwrap()
-            );
-            if xeresult == "84" {
-                // "84" means "rate limited"
-                std::thread::sleep(std::time::Duration::from_secs(60));
-            } else if xeresult == "15" {
-                break;
-            } else {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
+        if req.status() != 200 {
+            dbg!(req);
             continue;
         }
-        // map_err here converts the error to a string
-        return req.text().map_err(|e| format!("{}", e));
-    }
-    return Ok(String::new());
+        break req;
+    };
+    // check for errors in the response headers
+    // map_err here converts the error to a string
+    req.text().map_err(|e| format!("{}", e))
 }
 
 // this function can be called from other files
@@ -134,6 +153,11 @@ pub(crate) fn crawl(
     // start with the "seed" user ID
     network_queue.lock().push_back(seed.to_string());
 
+    // explanation: using while-let here keeps the lock on network_queue,
+    // causing only one thread to execute at a time. this defeats the
+    // purpose of parallelizing this code, so it is done with a guarding
+    // match statement instead of while let.
+    #[allow(clippy::while_let_loop)]
     rayon::scope(|s| {
         // spawn 8 threads
         for _ in 0..8 {
@@ -218,12 +242,59 @@ pub(crate) fn collect_game_info(
         "IPlayerService/GetOwnedGames/v0001",
         &params,
     )
-    .map_err(|e| format!("{}", e))?;
+    .map_err(|e| e.to_string())?;
     // parse as GamesResponse, again **magic**
     let games: GamesResponse =
         from_str(&res).map_err(|e| format!("{}: {}", res, e))?;
     Ok(PlayerGames {
         player: user_id.to_string(),
         games: games.response.games,
+    })
+}
+
+pub(crate) fn get_info_for_game(
+    appid: u128,
+) -> Result<GameAndReviewInfo, String> {
+    // store.steampowered.com/api/appdetails?appid=ABCDEF
+    let mut query = HashMap::new();
+    query.insert(String::from("appids"), appid.to_string());
+    // obtain game info
+    let game_data =
+        make_api_call(&mut Client::new(), "/api/appdetails", &query)?;
+    // parse (this had better work, it's magic though so idk)
+    println!("game_data: {}", &game_data);
+    let game_info: GameInfoResult =
+        from_str(&game_data).map_err(|e| e.to_string())?;
+    // store.steampowered.com/appreviews/ABCDEF?json=1
+    let mut query = HashMap::new();
+    query.insert(String::from("json"), String::from("1"));
+    // get review data
+    let reviews_text = make_api_call(
+        &mut Client::builder().user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:82.0) Gecko/20100101 Firefox/82.0").build().unwrap(),
+        &format!("/appreviews/{}", appid),
+        &query,
+    )?;
+    // parse (again, please work :praying_hands:)
+    println!("game_data: {}", &reviews_text);
+    todo!();
+    let reviews: ReviewResult =
+        from_str(&reviews_text).map_err(|e| e.to_string())?;
+    if game_info.success == 0 {
+        // oh no
+        return Err(String::from(
+            "Steam indicated a failure retrieving game info",
+        ));
+    }
+    if reviews.success == 0 {
+        // uh oh
+        return Err(String::from(
+            "Steam indicated a failure retrieving review info",
+        ));
+    }
+    // everything parsed correctly!!!!!!
+    Ok(GameAndReviewInfo {
+        game_info: game_info.data,
+        reviews: reviews.reviews,
+        review_summary: reviews.summary,
     })
 }
