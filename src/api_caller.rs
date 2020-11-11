@@ -60,7 +60,7 @@ pub(crate) struct PlayerGames {
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ReviewResult {
     success: i32,
-    summary: ReviewSummary,
+    query_summary: ReviewSummary,
     reviews: Vec<Review>,
 }
 
@@ -74,20 +74,43 @@ pub(crate) struct ReviewSummary {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Review {
-    weighted_vote_score: String,
+    weighted_vote_score: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) enum StringOrUsize {
+    Usize(usize),
+    String(String),
+}
+
+impl From<usize> for StringOrUsize {
+    fn from(u: usize) -> Self {
+        Self::Usize(u)
+    }
+}
+
+impl From<String> for StringOrUsize {
+    fn from(s: String) -> Self {
+        Self::String(s)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct GameInfoResult {
-    success: i32,
-    data: GameInfo,
+    success: bool,
+    data: Option<GameInfo>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct GameInfo {
     name: String,
-    appid: String,
-    genres: Vec<String>,
+    steam_appid: u128,
+    genres: Option<Vec<Genre>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct Genre {
+    description: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,21 +129,37 @@ fn make_api_call(
     let url = String::from(crate::STEAM_API_URL) + url;
     // while (true)
     // send the request
-    let req = loop {
-        let req = client
+    let response = loop {
+        let response = client
             .get(&url)
             .query(params)
             .send()
             .map_err(|e| format!("{}", e))?;
-        if req.status() != 200 {
-            dbg!(req);
-            continue;
+        match response.status() {
+            reqwest::StatusCode::OK => break response,
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+            | reqwest::StatusCode::FORBIDDEN => {
+                println!(
+                    "thread {}: FAIL: {} -- waiting 60 seconds",
+                    rayon::current_thread_index().unwrap(),
+                    response.status()
+                );
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                continue;
+            }
+            _ => {
+                println!(
+                    "thread {}: CRITICAL -- received unknown status!",
+                    rayon::current_thread_index().unwrap()
+                );
+                dbg!(response);
+                continue;
+            }
         }
-        break req;
     };
     // check for errors in the response headers
     // map_err here converts the error to a string
-    req.text().map_err(|e| format!("{}", e))
+    response.text().map_err(|e| format!("{}", e))
 }
 
 // this function can be called from other files
@@ -262,9 +301,18 @@ pub(crate) fn get_info_for_game(
     let game_data =
         make_api_call(&mut Client::new(), "/api/appdetails", &query)?;
     // parse (this had better work, it's magic though so idk)
-    println!("game_data: {}", &game_data);
-    let game_info: GameInfoResult =
+    let game_data: serde_json::Value =
         from_str(&game_data).map_err(|e| e.to_string())?;
+    let game_info: GameInfoResult = serde_json::from_value(
+        game_data
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .clone(),
+    )
+    .map_err(|e| format!("{}", e))?;
     // store.steampowered.com/appreviews/ABCDEF?json=1
     let mut query = HashMap::new();
     query.insert(String::from("json"), String::from("1"));
@@ -275,11 +323,9 @@ pub(crate) fn get_info_for_game(
         &query,
     )?;
     // parse (again, please work :praying_hands:)
-    println!("game_data: {}", &reviews_text);
-    todo!();
-    let reviews: ReviewResult =
-        from_str(&reviews_text).map_err(|e| e.to_string())?;
-    if game_info.success == 0 {
+    let reviews: ReviewResult = from_str(&reviews_text)
+        .map_err(|e| format!("with data {}: {}", reviews_text, e))?;
+    if !game_info.success {
         // oh no
         return Err(String::from(
             "Steam indicated a failure retrieving game info",
@@ -293,8 +339,8 @@ pub(crate) fn get_info_for_game(
     }
     // everything parsed correctly!!!!!!
     Ok(GameAndReviewInfo {
-        game_info: game_info.data,
+        game_info: game_info.data.unwrap(),
         reviews: reviews.reviews,
-        review_summary: reviews.summary,
+        review_summary: reviews.query_summary,
     })
 }

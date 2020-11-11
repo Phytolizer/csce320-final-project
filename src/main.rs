@@ -110,7 +110,14 @@ fn main() {
         file_contents
             .split("}{")
             .filter(|s| !s.is_empty())
-            .map(|o| format!("{{{}}}", o))
+            .map(|o| {
+                if o.starts_with('{') {
+                    format!("{}}}", o)
+                } else {
+                    format!("{{{}}}", o)
+                }
+            })
+            // .map(|o| dbg!(o))
             .map(|o| serde_json::from_str::<RawGames>(&o).unwrap())
             .flat_map(|rgs| rgs.games)
             .unique_by(|rg| rg.appid),
@@ -119,18 +126,27 @@ fn main() {
     rayon::scope(|s| {
         for _ in 0..8 {
             s.spawn(|_| loop {
-                let raw_games = match split_contents.lock().next() {
+                let raw_game = match split_contents.lock().next() {
                     Some(rg) => rg,
                     None => break,
                 };
+                println!(
+                    "thread {}: attempting to get info for appid {}",
+                    rayon::current_thread_index().unwrap(),
+                    raw_game.appid
+                );
                 let game_and_review_info =
-                    match api_caller::get_info_for_game(raw_games.appid) {
+                    match api_caller::get_info_for_game(raw_game.appid) {
                         Ok(gri) => gri,
                         Err(e) => {
                             println!("{}", e);
                             continue;
                         }
                     };
+                println!(
+                    "thread {}: SUCCESS",
+                    rayon::current_thread_index().unwrap()
+                );
                 write!(
                     game_info_raw.lock(),
                     "{}",
