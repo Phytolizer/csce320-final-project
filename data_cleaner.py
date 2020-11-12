@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any, Iterable
 
 
@@ -12,10 +13,16 @@ def parse_almost_json(file_name: str) -> Iterable[Any]:
         Iterable[Any]: the contents of the file parsed
                        into a series of JSON objects
     """
-    with open(file_name) as f:
-        # TODO doesn't work
-        print(json.load(f))
+    json_name = file_name.replace("_raw.txt", ".json")
+    with open(file_name) as f, open(json_name, 'w') as outfile:
+        #TODO doesn't work
+        text = f.read()
+        parse_json = re.sub('}{', '},\n{', text)
+        outfile.seek(0)
+        outfile.write('[' + parse_json + '\n]')
+        outfile.truncate()
 
 
 if __name__ == "__main__":
     parse_almost_json("game_info_raw.txt")
+    parse_almost_json("games_raw.txt")
