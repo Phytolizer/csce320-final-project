@@ -1,13 +1,6 @@
 use itertools::Itertools;
-use std::{
-    collections::HashMap,
-    fs,
-    fs::File,
-    io::BufRead,
-    io::{BufReader, Write},
-};
+use std::{fs, fs::File, io::Write};
 
-use api_caller::{crawl, GameAndReviewInfo, PlayerGames};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
@@ -15,7 +8,6 @@ use serde_json::to_string_pretty;
 const STEAM_API_URL: &str = "https://store.steampowered.com";
 
 mod api_caller;
-mod state;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Eq, PartialEq, Hash)]
 struct RawGames {

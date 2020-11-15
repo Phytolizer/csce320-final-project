@@ -9,6 +9,7 @@ use std::{
 
 use reqwest::blocking::Client;
 
+#[allow(dead_code)]
 const URL: &str = "https://api.steampowered.com/";
 
 // these structs allow to parse JSON into meaningful data with named fields
@@ -169,6 +170,7 @@ fn make_api_call(
 ///
 /// Returns: a map with keys representing users and values representing the number
 /// of hits that user received from the crawler
+#[allow(dead_code)]
 pub(crate) fn crawl(
     token: &str,
     seed: &str,
@@ -254,7 +256,8 @@ pub(crate) fn crawl(
                         *f += 1;
                     } else {
                         // unique user
-                        writeln!(raw_file.lock(), "{}", friend.steamid);
+                        writeln!(raw_file.lock(), "{}", friend.steamid)
+                            .unwrap();
                         network_queue.lock().push_front(friend.steamid);
                     }
                 }
@@ -268,6 +271,7 @@ pub(crate) fn crawl(
     Ok(network)
 }
 
+#[allow(dead_code)]
 pub(crate) fn collect_game_info(
     token: &str,
     user_id: &str,
@@ -280,8 +284,7 @@ pub(crate) fn collect_game_info(
         &mut Client::new(),
         "IPlayerService/GetOwnedGames/v0001",
         &params,
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     // parse as GamesResponse, again **magic**
     let games: GamesResponse =
         from_str(&res).map_err(|e| format!("{}: {}", res, e))?;
