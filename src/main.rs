@@ -21,20 +21,20 @@ struct RawGame {
 }
 
 fn main() {
-    // let data = match crawl(
-    //     String::from_utf8_lossy(&std::fs::read("token.txt").unwrap()).trim(),
-    //     "76561198021266721",
-    // ) {
-    //     Ok(data) => data,
-    //     Err(e) => {
-    //         eprintln!("{}", e);
-    //         return;
-    //     }
-    // };
-    // std::fs::write(
-    //     "out.json",
-    //     to_string_pretty(&data.lock() as &HashMap<String, usize>).unwrap(),
-    // );
+    let data = match crawl(
+        String::from_utf8_lossy(&std::fs::read("token.txt").unwrap()).trim(),
+        "76561198021266721",
+    ) {
+        Ok(data) => data,
+        Err(e) => {
+            eprintln!("{}", e);
+            return;
+        }
+    };
+    std::fs::write(
+        "out.json",
+        to_string_pretty(&data.lock() as &HashMap<String, usize>).unwrap(),
+    );
 
     // // BufReader allows reading a file line by line
     // let file = Mutex::new(BufReader::new(File::open("raw.txt").unwrap()));
@@ -95,57 +95,57 @@ fn main() {
     // )
     // .unwrap();
 
-    let game_info_raw = Mutex::new(File::create("game_info_raw.txt").unwrap());
-    let file_contents =
-        String::from_utf8(fs::read("games_raw.txt").unwrap()).unwrap();
-    let split_contents = Mutex::new(
-        file_contents
-            .split("}{")
-            .filter(|s| !s.is_empty())
-            .map(|o| {
-                if o.starts_with('{') {
-                    format!("{}}}", o)
-                } else {
-                    format!("{{{}}}", o)
-                }
-            })
-            // .map(|o| dbg!(o))
-            .map(|o| serde_json::from_str::<RawGames>(&o).unwrap())
-            .flat_map(|rgs| rgs.games)
-            .unique_by(|rg| rg.appid),
-    );
-    #[allow(clippy::while_let_loop)]
-    rayon::scope(|s| {
-        for _ in 0..8 {
-            s.spawn(|_| loop {
-                let raw_game = match split_contents.lock().next() {
-                    Some(rg) => rg,
-                    None => break,
-                };
-                println!(
-                    "thread {}: attempting to get info for appid {}",
-                    rayon::current_thread_index().unwrap(),
-                    raw_game.appid
-                );
-                let game_and_review_info =
-                    match api_caller::get_info_for_game(raw_game.appid) {
-                        Ok(gri) => gri,
-                        Err(e) => {
-                            println!("{}", e);
-                            continue;
-                        }
-                    };
-                println!(
-                    "thread {}: SUCCESS",
-                    rayon::current_thread_index().unwrap()
-                );
-                write!(
-                    game_info_raw.lock(),
-                    "{}",
-                    to_string_pretty(&game_and_review_info).unwrap()
-                )
-                .unwrap();
-            })
-        }
-    });
+    // let game_info_raw = Mutex::new(File::create("game_info_raw.txt").unwrap());
+    // let file_contents =
+    //     String::from_utf8(fs::read("games_raw.txt").unwrap()).unwrap();
+    // let split_contents = Mutex::new(
+    //     file_contents
+    //         .split("}{")
+    //         .filter(|s| !s.is_empty())
+    //         .map(|o| {
+    //             if o.starts_with('{') {
+    //                 format!("{}}}", o)
+    //             } else {
+    //                 format!("{{{}}}", o)
+    //             }
+    //         })
+    //         // .map(|o| dbg!(o))
+    //         .map(|o| serde_json::from_str::<RawGames>(&o).unwrap())
+    //         .flat_map(|rgs| rgs.games)
+    //         .unique_by(|rg| rg.appid),
+    // );
+    // #[allow(clippy::while_let_loop)]
+    // rayon::scope(|s| {
+    //     for _ in 0..8 {
+    //         s.spawn(|_| loop {
+    //             let raw_game = match split_contents.lock().next() {
+    //                 Some(rg) => rg,
+    //                 None => break,
+    //             };
+    //             println!(
+    //                 "thread {}: attempting to get info for appid {}",
+    //                 rayon::current_thread_index().unwrap(),
+    //                 raw_game.appid
+    //             );
+    //             let game_and_review_info =
+    //                 match api_caller::get_info_for_game(raw_game.appid) {
+    //                     Ok(gri) => gri,
+    //                     Err(e) => {
+    //                         println!("{}", e);
+    //                         continue;
+    //                     }
+    //                 };
+    //             println!(
+    //                 "thread {}: SUCCESS",
+    //                 rayon::current_thread_index().unwrap()
+    //             );
+    //             write!(
+    //                 game_info_raw.lock(),
+    //                 "{}",
+    //                 to_string_pretty(&game_and_review_info).unwrap()
+    //             )
+    //             .unwrap();
+    //         })
+    //     }
+    // });
 }
