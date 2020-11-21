@@ -2,10 +2,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::from_str;
-use std::{
-    collections::{HashMap, VecDeque},
-    io::Write,
-};
+use std::{collections::{HashMap, VecDeque}, collections::{hash_map::DefaultHasher, HashSet}, hash::{Hash, Hasher}, io::Write};
 
 use reqwest::blocking::Client;
 
@@ -58,24 +55,68 @@ pub(crate) struct PlayerGames {
     pub games: Vec<Game>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Hash)]
 pub(crate) struct ReviewResult {
     success: i32,
-    query_summary: ReviewSummary,
+    // query_summary: ReviewSummary,
     reviews: Vec<Review>,
+    cursor: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ReviewSummary {
     review_score: f64,
+    review_score_desc: String,
     total_positive: usize,
     total_negative: usize,
     total_reviews: usize,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+
+#[derive(Debug, Deserialize, Serialize, Hash, Eq, PartialEq, Clone)]
+pub(crate) struct ReviewAuthor {
+    steamid: String,
+    playtime_forever: u128,
+    playtime_at_review: Option<u128>,
+    last_played: u128,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Review {
+    author: ReviewAuthor,
     weighted_vote_score: serde_json::Value,
+    voted_up: bool,
+    votes_up: u128,
+    votes_funny: u128,
+    steam_purchase: bool,
+    received_for_free: bool,
+    written_during_early_access: bool,
+    timestamp_created: u128,
+    timestamp_updated: u128,
+}
+
+impl Hash for Review {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.author.hash(state);
+        state.write_u128(self.votes_up);
+        state.write_u128(self.timestamp_created);
+    }
+}
+
+impl PartialEq for Review {
+    fn eq(&self, other: &Self) -> bool {
+        let mut state = DefaultHasher::new();
+        self.hash(&mut state);
+        let hash1 = state.finish();
+        state = DefaultHasher::new();
+        other.hash(&mut state);
+        let hash2 = state.finish();
+        hash1 == hash2
+    }
+}
+
+impl Eq for Review {
+
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -294,9 +335,42 @@ pub(crate) fn collect_game_info(
     })
 }
 
+pub(crate) fn get_review_data(appid: u128) -> Result<HashSet<Review>, String> {
+    let mut client = Client::new();
+    let mut query = HashMap::new();
+    let url = format!("/appreviews/{}", appid);
+    query.insert(String::from("json"), String::from("1"));
+    query.insert(String::from("cursor"), String::from("*"));
+    query.insert(String::from("num_per_page"), String::from("100"));
+    let mut reviews = HashSet::<Review>::new();
+    let mut first_cursor = String::new();
+
+    loop {
+        let text = make_api_call(&mut client, &url, &query)?;
+        let review_summary: ReviewResult = from_str(&text).map_err(|e| format!("Couldn't parse: {}", e))?;
+        if first_cursor.is_empty() {
+            first_cursor = review_summary.cursor.clone();
+        } else if review_summary.cursor == first_cursor {
+            break;
+        }
+        let mut stop = false;
+        for review in &review_summary.reviews {
+            if reviews.contains(review) {
+                stop = true;
+            }
+            reviews.insert(review.clone());
+        }
+        if stop {
+            break;
+        }
+        query.insert(String::from("cursor"), review_summary.cursor.clone());
+    }
+    Ok(reviews)
+}
+
 pub(crate) fn get_info_for_game(
     appid: u128,
-) -> Result<GameAndReviewInfo, String> {
+) -> Result<(), String> {
     // store.steampowered.com/api/appdetails?appid=ABCDEF
     let mut query = HashMap::new();
     query.insert(String::from("appids"), appid.to_string());
@@ -341,9 +415,5 @@ pub(crate) fn get_info_for_game(
         ));
     }
     // everything parsed correctly!!!!!!
-    Ok(GameAndReviewInfo {
-        game_info: game_info.data.unwrap(),
-        reviews: reviews.reviews,
-        review_summary: reviews.query_summary,
-    })
+    Ok(())
 }
