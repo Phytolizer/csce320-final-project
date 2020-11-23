@@ -1,2 +1,3 @@
 /target
 /.mypy_cache
+/review_info.json
